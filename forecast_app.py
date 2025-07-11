@@ -1,9 +1,9 @@
-
 import pandas as pd
 import numpy as np
 import streamlit as st
 from xgboost import XGBRegressor
 from datetime import datetime
+import matplotlib.pyplot as plt
 
 st.title("📈 Time Series Forecasting Tool")
 st.markdown("Upload your CSV file with a date column and numeric values to forecast.")
@@ -61,4 +61,6 @@ if uploaded_file:
             result_df = pd.concat([result_df, forecast_df])
 
         st.write("### Forecasted Results", result_df.tail(30))
+        st.line_chart(result_df[target_columns])
         st.download_button("Download Forecast as CSV", result_df.to_csv().encode('utf-8'), file_name="forecast_output.csv", mime="text/csv")
+
