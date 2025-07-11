@@ -63,4 +63,3 @@ if uploaded_file:
         st.write("### Forecasted Results", result_df.tail(30))
         st.line_chart(result_df[target_columns])
         st.download_button("Download Forecast as CSV", result_df.to_csv().encode('utf-8'), file_name="forecast_output.csv", mime="text/csv")
-
