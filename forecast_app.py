@@ -4,6 +4,7 @@ import streamlit as st
 from xgboost import XGBRegressor
 from datetime import datetime
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 st.title("📈 Time Series Forecasting Tool")
 st.markdown("Upload your CSV file with a date column and numeric values to forecast.")
@@ -22,10 +23,17 @@ if uploaded_file:
     except:
         st.error("Failed to parse the date column. Please make sure it contains recognizable dates.")
 
+    # Detect frequency
+    inferred_freq = pd.infer_freq(df.index[:5]) or 'MS'
+    st.info(f"Detected date frequency: {inferred_freq}")
+
     target_columns = st.multiselect("Select numeric columns to forecast", df.select_dtypes(include=np.number).columns.tolist())
+    forecast_months = st.slider("Select forecast horizon (months)", 1, 60, 24)
+
+    adjustment = st.slider("Apply forecast adjustment (%)", -50, 50, 0)
 
     if st.button("Run Forecast") and target_columns:
-        future_dates = pd.date_range(start=df.index.max() + pd.DateOffset(months=1), periods=24, freq='MS')
+        future_dates = pd.date_range(start=df.index.max() + pd.DateOffset(months=1), periods=forecast_months, freq=inferred_freq)
 
         def create_features(index):
             return pd.DataFrame({
@@ -57,9 +65,23 @@ if uploaded_file:
             model.fit(X, y)
 
             forecast = model.predict(future_features)
+            forecast = forecast * (1 + adjustment / 100.0)
             forecast_df = pd.DataFrame({col: forecast}, index=future_dates)
             result_df = pd.concat([result_df, forecast_df])
 
-        st.write("### Forecasted Results", result_df.tail(30))
-        st.line_chart(result_df[target_columns])
+        st.write("### Forecasted Results", result_df.tail(forecast_months))
+
+        # Plot historical + forecast as dotted line
+        for col in target_columns:
+            fig, ax = plt.subplots()
+            ax.plot(result_df.index[:-forecast_months], result_df[col][:-forecast_months], label='Historical')
+            ax.plot(result_df.index[-forecast_months:], result_df[col][-forecast_months:], label='Forecast', linestyle='dotted')
+            ax.set_title(f"Forecast for {col}")
+            ax.legend()
+            ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+            fig.autofmt_xdate()
+            st.pyplot(fig)
+
         st.download_button("Download Forecast as CSV", result_df.to_csv().encode('utf-8'), file_name="forecast_output.csv", mime="text/csv")
+
