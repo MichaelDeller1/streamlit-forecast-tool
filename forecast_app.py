@@ -17,11 +17,24 @@ if uploaded_file:
 
     date_column = st.selectbox("Select the date column", df.columns)
 
+   try:
+    df[date_column] = pd.to_datetime(df[date_column], errors='coerce')
+    df = df.dropna(subset=[date_column])  # Remove rows that failed conversion
+    df = df.set_index(date_column).sort_index()
+except Exception as e:
+    st.error(f\"Failed to parse the date column: {e}\")
+
+# Only attempt frequency inference if the index is a proper datetime index
+if isinstance(df.index, pd.DatetimeIndex):
     try:
-        df[date_column] = pd.to_datetime(df[date_column])
-        df = df.set_index(date_column).sort_index()
-    except:
-        st.error("Failed to parse the date column. Please make sure it contains recognizable dates.")
+        inferred_freq = pd.infer_freq(df.index[:5]) or 'MS'
+    except Exception:
+        inferred_freq = 'MS'
+else:
+    inferred_freq = 'MS'
+
+st.info(f\"Detected date frequency: {inferred_freq}\")
+
 
     # Detect frequency
     inferred_freq = pd.infer_freq(df.index[:5]) or 'MS'
