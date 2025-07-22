@@ -24,23 +24,43 @@ if uploaded_file:
     except Exception as e:
         st.error(f"Failed to parse the date column: {e}")
 
-    # Only attempt frequency inference if the index is a proper datetime index
     if isinstance(df.index, pd.DatetimeIndex):
         try:
-            inferred_freq = pd.infer_freq(df.index[:5]) or 'MS'
+            inferred_freq = pd.infer_freq(df.index[:5])
         except Exception:
-            inferred_freq = 'MS'
+            inferred_freq = None
     else:
-        inferred_freq = 'MS'
+        inferred_freq = None
+
+    if inferred_freq is None:
+        delta = df.index.to_series().diff().mode()[0]
+        if delta.days >= 28:
+            inferred_freq = 'MS'
+        elif delta.days >= 7:
+            inferred_freq = 'W'
+        else:
+            inferred_freq = 'D'
 
     st.info(f"Detected date frequency: {inferred_freq}")
 
     target_columns = st.multiselect("Select numeric columns to forecast", df.select_dtypes(include=np.number).columns.tolist())
-    forecast_months = st.slider("Select forecast horizon (months)", 1, 60, 24)
-    adjustment = st.slider("Apply forecast adjustment (%)", -50, 50, 0)
+    forecast_periods = st.slider("Forecast horizon (in units of detected frequency)", 30, 730, 365)
+
+    num_variants = st.slider("Number of alternative forecasts", 0, 3, 1)
+    variant_adjustments = []
+    for i in range(num_variants):
+        adj = st.slider(f"Adjustment for Variant {i+1} (%)", -50, 50, i * 10)
+        variant_adjustments.append(adj)
 
     if st.button("Run Forecast") and target_columns:
-        future_dates = pd.date_range(start=df.index.max() + pd.DateOffset(months=1), periods=forecast_months, freq=inferred_freq)
+
+        # Determine the date offset unit
+        if inferred_freq == 'D':
+            future_dates = pd.date_range(start=df.index.max() + pd.Timedelta(days=1), periods=forecast_periods, freq='D')
+        elif inferred_freq == 'W':
+            future_dates = pd.date_range(start=df.index.max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W')
+        else:
+            future_dates = pd.date_range(start=df.index.max() + pd.DateOffset(months=1), periods=forecast_periods, freq='MS')
 
         def create_features(index):
             return pd.DataFrame({
@@ -55,6 +75,7 @@ if uploaded_file:
 
         future_features = create_features(future_dates)
         result_df = df.copy()
+        all_forecasts = {}
 
         for col in target_columns:
             hist_df = df[[col]].copy()
@@ -72,17 +93,27 @@ if uploaded_file:
             model.fit(X, y)
 
             forecast = model.predict(future_features)
-            forecast = forecast * (1 + adjustment / 100.0)
-            forecast_df = pd.DataFrame({col: forecast}, index=future_dates)
-            result_df = pd.concat([result_df, forecast_df])
+            forecasts = {f"{col} (Base)": forecast}
+            for i, adj in enumerate(variant_adjustments):
+                forecasts[f"{col} (Variant {i+1})"] = forecast * (1 + adj / 100.0)
 
-        st.write("### Forecasted Results", result_df.tail(forecast_months))
+            for name, values in forecasts.items():
+                forecast_df = pd.DataFrame({name: values}, index=future_dates)
+                all_forecasts[name] = forecast_df[name]
 
-        # Visualize with dotted forecast
+        forecast_output = pd.concat([df[target_columns], pd.concat(all_forecasts.values(), axis=1)], axis=0)
+
+        st.write("### Forecasted Results", forecast_output.tail(forecast_periods))
+
         for col in target_columns:
             fig, ax = plt.subplots()
-            ax.plot(result_df.index[:-forecast_months], result_df[col][:-forecast_months], label='Historical')
-            ax.plot(result_df.index[-forecast_months:], result_df[col][-forecast_months:], label='Forecast', linestyle='dotted')
+            ax.plot(df.index, df[col], label='Historical')
+            base_key = f"{col} (Base)"
+            ax.plot(all_forecasts[base_key].index, all_forecasts[base_key], linestyle='dotted', label='Forecast (Base)')
+            for i in range(num_variants):
+                variant_key = f"{col} (Variant {i+1})"
+                ax.plot(all_forecasts[variant_key].index, all_forecasts[variant_key], linestyle='dotted', label=variant_key)
+
             ax.set_title(f"Forecast for {col}")
             ax.legend()
             ax.xaxis.set_major_locator(mdates.AutoDateLocator())
@@ -90,4 +121,4 @@ if uploaded_file:
             fig.autofmt_xdate()
             st.pyplot(fig)
 
-        st.download_button("Download Forecast as CSV", result_df.to_csv().encode('utf-8'), file_name="forecast_output.csv", mime="text/csv")
+        st.download_button("Download Forecast as CSV", forecast_output.to_csv().encode('utf-8'), file_name="forecast_output.csv", mime="text/csv")
