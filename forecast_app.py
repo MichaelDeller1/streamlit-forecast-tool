@@ -17,32 +17,26 @@ if uploaded_file:
 
     date_column = st.selectbox("Select the date column", df.columns)
 
-   try:
-    df[date_column] = pd.to_datetime(df[date_column], errors='coerce')
-    df = df.dropna(subset=[date_column])  # Remove rows that failed conversion
-    df = df.set_index(date_column).sort_index()
-except Exception as e:
-    st.error(f\"Failed to parse the date column: {e}\")
-
-# Only attempt frequency inference if the index is a proper datetime index
-if isinstance(df.index, pd.DatetimeIndex):
     try:
-        inferred_freq = pd.infer_freq(df.index[:5]) or 'MS'
-    except Exception:
+        df[date_column] = pd.to_datetime(df[date_column], errors='coerce')
+        df = df.dropna(subset=[date_column])
+        df = df.set_index(date_column).sort_index()
+    except Exception as e:
+        st.error(f"Failed to parse the date column: {e}")
+
+    # Only attempt frequency inference if the index is a proper datetime index
+    if isinstance(df.index, pd.DatetimeIndex):
+        try:
+            inferred_freq = pd.infer_freq(df.index[:5]) or 'MS'
+        except Exception:
+            inferred_freq = 'MS'
+    else:
         inferred_freq = 'MS'
-else:
-    inferred_freq = 'MS'
 
-st.info(f\"Detected date frequency: {inferred_freq}\")
-
-
-    # Detect frequency
-    inferred_freq = pd.infer_freq(df.index[:5]) or 'MS'
     st.info(f"Detected date frequency: {inferred_freq}")
 
     target_columns = st.multiselect("Select numeric columns to forecast", df.select_dtypes(include=np.number).columns.tolist())
     forecast_months = st.slider("Select forecast horizon (months)", 1, 60, 24)
-
     adjustment = st.slider("Apply forecast adjustment (%)", -50, 50, 0)
 
     if st.button("Run Forecast") and target_columns:
@@ -84,7 +78,7 @@ st.info(f\"Detected date frequency: {inferred_freq}\")
 
         st.write("### Forecasted Results", result_df.tail(forecast_months))
 
-        # Plot historical + forecast as dotted line
+        # Visualize with dotted forecast
         for col in target_columns:
             fig, ax = plt.subplots()
             ax.plot(result_df.index[:-forecast_months], result_df[col][:-forecast_months], label='Historical')
@@ -97,4 +91,3 @@ st.info(f\"Detected date frequency: {inferred_freq}\")
             st.pyplot(fig)
 
         st.download_button("Download Forecast as CSV", result_df.to_csv().encode('utf-8'), file_name="forecast_output.csv", mime="text/csv")
-
