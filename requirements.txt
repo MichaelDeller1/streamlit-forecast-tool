@@ -1,6 +1,6 @@
 pandas
 numpy
-streamlit
+streamlit>=1.30
 xgboost
 scikit-learn
 matplotlib
